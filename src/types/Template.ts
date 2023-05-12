@@ -102,7 +102,7 @@ export interface TemplateValidationPayload {
 }
 
 export interface ProcessTemplates {
-  newList: TemplateManifest[]
+  templates: Templates
   manifest: TemplateManifest[]
   all: boolean
   force: boolean

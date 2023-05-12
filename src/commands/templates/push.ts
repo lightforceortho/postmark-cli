@@ -1,6 +1,6 @@
 import chalk from 'chalk'
 import ora from 'ora'
-import { find, cloneDeep } from 'lodash'
+import { find } from 'lodash'
 import { prompt } from 'inquirer'
 import { table, getBorderCharacters } from 'table'
 import untildify from 'untildify'
@@ -97,7 +97,10 @@ const push = (serverToken: string, args: TemplatePushArguments) => {
         // Check if there are templates on the server
         if (response.TotalCount === 0) {
           processTemplates({
-            newList: [],
+            templates: {
+              Templates: [],
+              TotalCount: 0
+            },
             manifest: manifest,
             all: all,
             force: force,
@@ -105,16 +108,13 @@ const push = (serverToken: string, args: TemplatePushArguments) => {
             client: client,
           })
         } else {
-          // Gather template content before processing templates
-          getTemplateContent(client, response).then(newList => {
-            processTemplates({
-              newList: newList,
-              manifest: manifest,
-              all: all,
-              force: force,
-              spinner: spinner,
-              client: client,
-            })
+          processTemplates({
+            templates: response,
+            manifest: manifest,
+            all: all,
+            force: force,
+            spinner: spinner,
+            client: client,
           })
         }
       })
@@ -134,9 +134,9 @@ const push = (serverToken: string, args: TemplatePushArguments) => {
  * Compare templates and CLI flow
  */
 const processTemplates = (config: ProcessTemplates) => {
-  const { newList, manifest, all, force, spinner, client } = config
+  const { templates, manifest, all, force, spinner, client } = config
 
-  compareTemplates(newList, manifest, all)
+  compareTemplates(templates, manifest, all)
 
   spinner.stop()
   if (pushManifest.length === 0) return log('There are no changes to push.')
@@ -164,39 +164,6 @@ const processTemplates = (config: ProcessTemplates) => {
 }
 
 /**
- * Gather template content from server to compare against local versions
- */
-const getTemplateContent = (
-  client: any,
-  templateList: Templates
-): Promise<any> =>
-  new Promise<TemplateManifest[]>(resolve => {
-    let newList: any[] = cloneDeep(templateList.Templates)
-    let progress = 0
-
-    newList.forEach((template, index) => {
-      client
-        .getTemplate(template.TemplateId)
-        .then((result: TemplateManifest) => {
-          newList[index] = {
-            ...newList[index],
-            HtmlBody: result.HtmlBody,
-            TextBody: result.TextBody,
-            Subject: result.Subject,
-            TemplateType: result.TemplateType,
-            LayoutTemplate: result.LayoutTemplate,
-          }
-
-          progress++
-
-          if (progress === newList.length) {
-            return resolve(newList)
-          }
-        })
-    })
-  })
-
-/**
  * Ask user to confirm the push
  */
 const confirmation = (): Promise<any> =>
@@ -217,14 +184,14 @@ const confirmation = (): Promise<any> =>
  * Compare templates on server against local
  */
 const compareTemplates = (
-  response: TemplateManifest[],
+  response: Templates,
   manifest: TemplateManifest[],
   pushAll: boolean
 ): void => {
   // Iterate through manifest
   manifest.forEach(template => {
     // See if this local template exists on the server
-    const match = find(response, { Alias: template.Alias })
+    const match = find(response.Templates, { Alias: template.Alias })
     template.New = !match
 
     // New template
@@ -233,49 +200,12 @@ const compareTemplates = (
       return pushTemplatePreview(match, template)
     }
 
-    // Set modification status
-    const modified = wasModified(match, template)
-    template.Status = modified
-      ? chalk.yellow('Modified')
-      : chalk.gray('Unmodified')
-
     // Push all templates if --all argument is present,
     // regardless of whether templates were modified
     if (pushAll) {
       return pushTemplatePreview(match, template)
     }
-
-    // Only push modified templates
-    if (modified) {
-      return pushTemplatePreview(match, template)
-    }
   })
-}
-
-/**
- * Check if local template is different than server
- */
-const wasModified = (
-  server: TemplateManifest,
-  local: TemplateManifest
-): boolean => {
-  const htmlModified = server.HtmlBody !== local.HtmlBody
-  const textModified = server.TextBody !== local.TextBody
-  const subjectModified =
-    local.TemplateType === 'Standard' ? server.Subject !== local.Subject : false
-  const nameModified = server.Name !== local.Name
-  const layoutModified =
-    local.TemplateType === 'Standard'
-      ? server.LayoutTemplate !== local.LayoutTemplate
-      : false
-
-  return (
-    htmlModified ||
-    textModified ||
-    subjectModified ||
-    nameModified ||
-    layoutModified
-  )
 }
 
 /**
